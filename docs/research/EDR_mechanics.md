@@ -1,62 +1,61 @@
-# Resumen: Mecánica de los EDR (Endpoint Detection and Response)
+# Summary: Mechanics of EDR (Endpoint Detection and Response)
 
-## 1. Funcionamiento de Windows Defender y CrowdStrike
+## 1. Operation of Windows Defender and CrowdStrike
 
-### Windows Defender (Ahora Microsoft Defender for Endpoint)
-- **Enfoque integrado**: Viene preinstalado en Windows y utiliza servicios del sistema operativo como ETW (Event Tracing for Windows) y AMSI (Antimalware Scan Interface).
-- **Componentes clave**:
-    - **Antimalware Service**: Escaneo en tiempo real y basado en firmas.
-    - **Cloud-Delivered Protection**: Análisis en la nube para detección de amenazas emergentes.
-    - **EDR capabilities**: Recopila telemetría del endpoint para análisis posterior.
-- **Arquitectura**: Agente ligero que se aprovecha de la infraestructura de Microsoft.
+### Windows Defender (Now Microsoft Defender for Endpoint)
+- **Integrated approach**: Preinstalled on Windows and leverages OS services such as ETW (Event Tracing for Windows) and AMSI (Antimalware Scan Interface).
+- **Key components**:
+    - **Antimalware Service**: Real-time and signature-based scanning.
+    - **Cloud-Delivered Protection**: Cloud-based analysis for emerging threats.
+    - **EDR capabilities**: Collects endpoint telemetry for further analysis.
+- **Architecture**: Lightweight agent leveraging Microsoft’s infrastructure.
 
 ### CrowdStrike Falcon
-- **Enfoque basado en agente**: Un agiente ligero (`falcon-sensor`) que se instala en el endpoint.
-- **Funcionamiento**:
-    - **Kernel-Level Driver**: Monitorea la actividad del sistema a nivel de kernel usando hooks.
-    - **Streaming de eventos**: Envía telemetría en tiempo real a la nube de CrowdStrike para su análisis.
-    - **Inteligencia Artificial**: Usa modelos de ML para detectar comportamientos maliciosos.
-- **Arquitectura**: Cloud-native, con análisis centralizado en la plataforma Falcon.
+- **Agent-based approach**: A lightweight agent (`falcon-sensor`) installed on the endpoint.
+- **Operation**:
+    - **Kernel-Level Driver**: Monitors system activity at the kernel level using hooks.
+    - **Event streaming**: Sends real-time telemetry to CrowdStrike’s cloud for analysis.
+    - **Artificial Intelligence**: Uses ML models to detect malicious behaviors.
+- **Architecture**: Cloud-native, with centralized analysis in the Falcon platform.
 
 ---
 
-## 2. Diagrama de Arquitectura EDR
+## 2. EDR Architecture Diagram
+[Endpoint] → [Hooks (Kernel/Userland)] → [Telemetry Collection] → [Local/Cloud Analysis] → [Response]
 
-[Endpoint] → [Hooks (Kernel/Userland)] → [Recolección de Telemetría] → [Análisis Local/Cloud] → [Respuesta]
-
-### Componentes:
-- **Hooks**: 
-    - Interceptan llamadas al sistema (syscalls), API de usuario, o actividades del kernel.
-    - Ejemplo: CrowdStrike usa un driver en kernel mode para monitorizar.
-- **Telemetría**: 
-    - Datos recolectados: procesos, red, registros, archivos, etc.
-    - Se envía a un backend para su análisis (ej: via ETW en Defender).
-- **Análisis de Comportamiento**:
-    - Motor de reglas y ML para detectar patrones sospechosos (ej: ejecución de PowerShell ofuscado).
+### Components:
+- **Hooks**:  
+    - Intercept system calls (syscalls), userland APIs, or kernel activities.  
+    - Example: CrowdStrike uses a kernel-mode driver for monitoring.  
+- **Telemetry**:  
+    - Collected data: processes, network, logs, files, etc.  
+    - Sent to a backend for analysis (e.g., via ETW in Defender).  
+- **Behavior Analysis**:  
+    - Rules engine and ML to detect suspicious patterns (e.g., execution of obfuscated PowerShell).  
 
 ---
 
-## 3. Puntos Débiles Identificados
+## 3. Identified Weaknesses
 
-1. **Bypass de Hooks**:
-    - Técnicas como Direct System Calls evitan los hooks en userland.
-    - Modificación de tablas de syscalls (SSDT) en kernel.
+1. **Hook Bypass**:
+    - Techniques such as Direct System Calls avoid userland hooks.  
+    - Modification of syscall tables (SSDT) at the kernel level.  
 
-2. **Telemetría Insuficiente o Manipulable**:
-    - Los atacantes pueden borrar logs o manipular eventos (ej: usando herramientas como WevtUtil).
-    - Limitaciones en la captura de datos en tiempo real (overhead).
+2. **Insufficient or Manipulable Telemetry**:
+    - Attackers may delete logs or tamper with events (e.g., using tools like WevtUtil).  
+    - Limitations in real-time data capture due to overhead.  
 
-3. **Dependencia del Análisis en la Nube**:
-    - Si el endpoint pierde conexión, la detección en tiempo real se reduce.
-    - Latencia en la respuesta.
+3. **Dependence on Cloud Analysis**:
+    - If the endpoint loses connectivity, real-time detection is reduced.  
+    - Response latency issues.  
 
-4. **Técnicas de Ofuscación**:
-    - Scripts ofuscados (ej: PowerShell) pueden evadir detecciones estáticas.
-    - Living Off the Land (LOLBins): uso de herramientas legítimas del sistema.
+4. **Obfuscation Techniques**:
+    - Obfuscated scripts (e.g., PowerShell) can bypass static detections.  
+    - Living Off the Land (LOLBins): using legitimate system tools.  
 
-5. **Privilege Escalation/Abuso de Permisos**:
-    - Si el agente EDR se ejecuta con privilegios insuficientes, puede ser eludido.
-    - Exploits contra el propio agente EDR (ej: vulnerabilidades en drivers).
+5. **Privilege Escalation/Permission Abuse**:
+    - If the EDR agent runs with insufficient privileges, it may be bypassed.  
+    - Exploits targeting the EDR agent itself (e.g., driver vulnerabilities).  
 
-6. **Falsos Positivos**:
-    - El análisis heurístico/ML puede generar alertas falsas, consumiendo recursos de investigación.
+6. **False Positives**:
+    - Heuristic/ML-based analysis may generate false alerts, consuming investigation resources.  
