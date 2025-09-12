@@ -1,110 +1,110 @@
-# Proyecto de Investigación en Técnicas de Evasión de EDR
+# Research Project on EDR Evasion Techniques
 
-## 📌 Resumen Ejecutivo
-Este proyecto se centra en la **investigación y aplicación de técnicas avanzadas** para evadir soluciones de seguridad de tipo **Endpoint Detection and Response (EDR)**.  
-El objetivo es **educativo y defensivo**: comprender cómo los atacantes logran eludir la detección para luego **proponer estrategias de mitigación y detección más robustas**.  
+## 📌 Executive Summary
+This project focuses on the **research and application of advanced techniques** to evade **Endpoint Detection and Response (EDR)** solutions.  
+The goal is **educational and defensive**: to understand how attackers bypass detection in order to later **propose stronger mitigation and detection strategies**.  
 
-A través del desarrollo de **Pruebas de Concepto (PoCs)**, se explorarán métodos como:
-- Ofuscación de código  
-- Cifrado de payloads  
-- Inyección de procesos  
-- Evasión de hooks de API  
+Through the development of **Proofs of Concept (PoCs)**, the project explores methods such as:  
+- Code obfuscation  
+- Payload encryption  
+- Process injection  
+- API hook evasion  
 
-Los resultados permitirán formular recomendaciones concretas para **equipos de seguridad (Blue Teams)**.
-
----
-
-## 🎯 Objetivos del Proyecto
-- Investigar el funcionamiento interno de soluciones EDR y sus mecanismos de detección (firmas, comportamiento y heurística).  
-- Desarrollar payloads personalizados en **C/C++** y herramientas como **Metasploit**, aplicando técnicas de evasión.  
-- Evaluar la efectividad de dichas técnicas frente a **Windows Defender** y **CrowdStrike** en entornos de laboratorio controlados.  
-- Documentar resultados y proponer **contramedidas y reglas de detección** para Blue Teams.  
+The results will provide concrete recommendations for **security teams (Blue Teams)**.
 
 ---
 
-## 🛠️ Metodología y Fases
-### Semana 1: Investigación y Fundamentos
-- Arquitectura de los EDRs.  
-- Análisis de técnicas de *hooking* en APIs de Windows (user-land).  
-- Estudio de técnicas de evasión: **Process Hollowing**, **DLL Injection**, **cifrado de shellcode**, **syscalls directas**.  
-
-### Semana 2: Desarrollo de Payloads y Ofuscación
-- Creación de shellcodes con **Metasploit / Cobalt Strike**.  
-- Implementación de PoCs en **C/C++**.  
-- Uso de **ofuscadores (Obfuscator-LLVM)**.  
-
-### Semana 3: Pruebas en Laboratorio
-- Entornos con Windows 10/11 + Defender + CrowdStrike.  
-- Ejecución de PoCs y registro sistemático de resultados.  
-- Iteración sobre técnicas para mejorar la evasión.  
-
-### Semana 4: Análisis y Documentación Final
-- Identificación de técnicas más efectivas.  
-- Redacción de informe final con **binarios, logs y recomendaciones defensivas**.  
+## 🎯 Project Objectives
+- Research the internal workings of EDR solutions and their detection mechanisms (signatures, behavior, and heuristics).  
+- Develop custom payloads in **C/C++** and tools such as **Metasploit**, applying evasion techniques.  
+- Evaluate the effectiveness of these techniques against **Windows Defender** and **CrowdStrike** in controlled lab environments.  
+- Document results and propose **countermeasures and detection rules** for Blue Teams.  
 
 ---
 
-## ⚗️ Pruebas de Concepto (PoC)
+## 🛠️ Methodology and Phases
+### Week 1: Research and Fundamentals
+- Study of EDR architecture.  
+- Analysis of Windows API *hooking* techniques (user-land).  
+- Research of common evasion techniques: **Process Hollowing**, **DLL Injection**, **shellcode encryption**, **direct syscalls**.  
 
-### PoC 1: Ejecución de Shellcode Ofuscado con Syscalls Directas
-**Objetivo:** Evadir detección estática y hooks de API mediante:  
-- 🔐 **Cifrado AES de shellcode**  
-- 🔑 **Ofuscación XOR de clave**  
-- 🔍 **Resolución dinámica de APIs**  
-- ⚡ **Invocación directa de syscalls**  
+### Week 2: Payload Development and Obfuscation
+- Creation of shellcodes with **Metasploit / Cobalt Strike**.  
+- PoC implementation in **C/C++**.  
+- Application of **obfuscators (Obfuscator-LLVM)**.  
 
-**Flujo:**  
-1. Deofuscación de clave AES en memoria.  
-2. Descifrado de shellcode.  
-3. Reserva de memoria con `NtAllocateVirtualMemory` vía syscall directa.  
-4. Copia y ejecución del payload en memoria.  
+### Week 3: Lab Testing
+- Setup of Windows 10/11 with Defender and CrowdStrike.  
+- Execution of PoCs and systematic result logging.  
+- Iteration and refinement of evasion techniques.  
 
----
-
-### PoC 2: Process Hollowing con Unhooking
-**Objetivo:** Inyectar payload en un proceso legítimo (ej. `notepad.exe`) eliminando los hooks de EDR.  
-
-**Técnicas clave:**  
-- 🧹 **Unhooking de ntdll.dll** (restauración de sección `.text`).  
-- 👻 **Process Hollowing** con `NtUnmapViewOfSection`, `WriteProcessMemory` y manipulación de contexto de hilos.  
-
-**Flujo:**  
-1. Eliminación de hooks en `ntdll.dll`.  
-2. Lanzamiento de proceso confiable suspendido.  
-3. Desmapeo y reemplazo de memoria del proceso.  
-4. Redirección del hilo principal al shellcode.  
-5. Reanudación del proceso con el payload inyectado.  
+### Week 4: Analysis and Final Documentation
+- Identification of the most effective techniques.  
+- Final report including **binaries, logs, and defensive recommendations**.  
 
 ---
 
-## 🛡️ Recomendaciones Defensivas (Blue Team)
+## ⚗️ Proofs of Concept (PoC)
 
-### Monitorización de Comportamiento
-- Detectar procesos creados con **CREATE_SUSPENDED** en contextos sospechosos.  
-- Monitorear **relaciones padre-hijo** inusuales.  
-- Alertar ante llamadas a **NtUnmapViewOfSection**.  
+### PoC 1: Obfuscated Shellcode Execution with Direct Syscalls
+**Objective:** Bypass static detection and API hooks using:  
+- 🔐 **AES shellcode encryption**  
+- 🔑 **XOR key obfuscation**  
+- 🔍 **Dynamic API resolution**  
+- ⚡ **Direct syscall invocation**  
 
-### Análisis de Memoria y API
-- Identificar **syscalls directas** fuera de módulos legítimos.  
-- Escanear regiones **PAGE_EXECUTE_READWRITE** en procesos.  
-- Verificar integridad de la sección `.text` en DLLs críticas.  
+**Execution Flow:**  
+1. AES key deobfuscated in memory.  
+2. Shellcode decrypted.  
+3. Memory reserved with `NtAllocateVirtualMemory` via direct syscall.  
+4. Payload copied and executed in memory.  
 
-### Reglas de Detección (YARA/Sigma)
-- Combinar llamadas sospechosas:  
+---
+
+### PoC 2: Process Hollowing with Unhooking
+**Objective:** Inject a payload into a legitimate process (e.g., `notepad.exe`) while removing EDR hooks.  
+
+**Key Techniques:**  
+- 🧹 **Unhooking ntdll.dll** (restoring the `.text` section).  
+- 👻 **Process Hollowing** using `NtUnmapViewOfSection`, `WriteProcessMemory`, and thread context manipulation.  
+
+**Execution Flow:**  
+1. Hooks in `ntdll.dll` are removed.  
+2. A trusted process is launched in suspended mode.  
+3. Original memory unmapped and replaced with payload.  
+4. Thread context redirected to injected shellcode.  
+5. Process resumed, executing the payload under disguise.  
+
+---
+
+## 🛡️ Defensive Recommendations (Blue Team)
+
+### Process Behavior Monitoring
+- Detect processes created with **CREATE_SUSPENDED** in unusual contexts.  
+- Monitor **anomalous parent-child process relationships**.  
+- Alert on calls to **NtUnmapViewOfSection**.  
+
+### Memory and API Analysis
+- Identify **direct syscalls** outside legitimate modules.  
+- Scan processes for **PAGE_EXECUTE_READWRITE** regions containing shellcode.  
+- Verify integrity of `.text` sections in critical DLLs.  
+
+### Detection Rules (YARA/Sigma)
+- Detect suspicious API call patterns:  
   `CreateProcessA + VirtualAllocEx + WriteProcessMemory + SetThreadContext + ResumeThread`.  
 
 ---
 
-## 📦 Entregables
-- **Binarios PoCs**  
-- **Logs de evasión** (detección o bypass en pruebas).  
-- **Informe de recomendaciones defensivas**.  
+## 📦 Deliverables
+- **PoC binaries**  
+- **Evasion logs** (detection/bypass results)  
+- **Defensive recommendations report**  
 
 ---
 
 ## ⚠️ Disclaimer
-Este proyecto tiene fines **puramente educativos y de investigación defensiva**.  
-**No debe utilizarse con fines maliciosos.**  
-El autor no se hace responsable del uso indebido de la información aquí contenida.  
+This project is strictly for **educational and defensive research purposes**.  
+**It must not be used for malicious intent.**  
+The author is not responsible for any misuse of the information provided.  
 
 ---
