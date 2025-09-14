@@ -98,6 +98,7 @@ Without these flags, the program would require external DLLs (`libgcc_s_seh-1.dl
 With them, the binary is fully self-contained and portable.  
 
 ---
+```
 
 ## ⚠️ Final Warning
 
