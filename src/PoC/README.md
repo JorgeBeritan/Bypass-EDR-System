@@ -160,4 +160,4 @@ This code represents a **sophisticated example of offensive cybersecurity techni
 For the security community, this serves as a reminder of the need for **multi-layered defenses** that focus on **behavioral detection** rather than relying solely on static signatures.
 
 ## 10. Compilation
-x86_64-w64-mingw32-g++ anti-analisis5.cpp -o anti-analisis5.exe -static-libgcc -static-libstdc++ -lsetupapi -ladvapi32 -lole32 -loleaut32
+x86_64-w64-mingw32-g++ poc.cpp -o poc.exe -static-libgcc -static-libstdc++ -lsetupapi -ladvapi32 -lole32 -loleaut32
